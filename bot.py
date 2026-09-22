@@ -6,9 +6,9 @@ from datetime import datetime, timezone
 # KONFIGURATION
 # =========================
 
-DISCORD_TOKEN = os.environ["MTU1MjAyODEzMTYxODIwMTY0Mg.Ge1-Cr.piFEdIET3ZZlkVU6OdJDIj2i7xJ4dK2ZahQHzc"]
-CHANNEL_ID = os.environ["1552027336323629236"]
-PARSE_API_KEY = os.environ["pmx_c82bcd7a"]
+DISCORD_TOKEN = os.environ["DISCORD_TOKEN"]
+CHANNEL_ID = os.environ["CHANNEL_ID"]
+PARSE_API_KEY = os.environ["PARSE_API_KEY"]
 
 PARSE_URL = (
     "https://api.parse.bot/"
