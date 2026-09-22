@@ -20,33 +20,31 @@ API_URL = (
 
 PLAYER_NAME = "Kika Nazareth"
 PLAYER_RATING = 83
-PLATFORM = "pc"
 
-# 5 Minuten
-UPDATE_INTERVAL = 300
-
-message_id = None
+UPDATE_INTERVAL = 300  # 5 Minuten
 
 intents = discord.Intents.default()
 client = discord.Client(intents=intents)
 
+message_id = None
+
 
 # =========================
-# PREIS ABRUFEN
+# KIKA PREIS ABRUFEN
 # =========================
 
-async def get_kika_price():
+async def get_kika():
 
     headers = {
         "X-API-Key": PARSE_API_KEY,
-        "Accept": "application/json",
+        "Accept": "application/json"
     }
 
     params = {
         "page": 1,
-        "platform": PLATFORM,
-        "min_rating": PLAYER_RATING,
-        "max_rating": PLAYER_RATING,
+        "platform": "pc",
+        "max_rating": 83,
+        "min_rating": 83
     }
 
     async with aiohttp.ClientSession() as session:
@@ -55,13 +53,11 @@ async def get_kika_price():
             API_URL,
             headers=headers,
             params=params,
-            timeout=30,
+            timeout=30
         ) as response:
 
             if response.status != 200:
-                print(
-                    f"API Fehler: HTTP {response.status}"
-                )
+                print("API Fehler:", response.status)
                 print(await response.text())
                 return None
 
@@ -72,13 +68,15 @@ async def get_kika_price():
     for player in players:
 
         if (
-            player.get("name") == PLAYER_NAME
-            and player.get("rating") == PLAYER_RATING
+            player.get("name") == "Kika Nazareth"
+            and player.get("rating") == 83
+            and player.get("position") == "CM"
+            and player.get("club") == "FC Barcelona"
+            and player.get("card_type") == "Gold Rare"
         ):
-            return player.get("price")
+            return player
 
-    print("Kika Nazareth wurde nicht gefunden.")
-
+    print("Kika Nazareth nicht gefunden.")
     return None
 
 
@@ -86,31 +84,28 @@ async def get_kika_price():
 # DISCORD NACHRICHT
 # =========================
 
-def create_message(price):
+def make_message(player):
 
-    if price is None:
+    if player is None:
 
         price_text = "❌ Preis nicht verfügbar"
+        update_text = "Fehler beim Abrufen"
 
     else:
 
-        price_text = (
-            f"{price:,} Coins"
-            .replace(",", ".")
-        )
+        price = player["price"]
 
-    current_time = datetime.now().strftime(
-        "%d.%m.%Y %H:%M"
-    )
+        price_text = f"{price:,} Coins".replace(",", ".")
+        update_text = datetime.now().strftime("%d.%m.%Y %H:%M")
 
     return (
         "━━━━━━━━━━━━━━━━━━━━\n"
-        "🇵🇹 **Kika Nazareth**\n\n"
-        "⭐ **83 GES • CM**\n"
+        "🇵🇹 **Kika Nazareth — 83 GES**\n\n"
+        "⭐ **CM • Gold Rare**\n"
         "🔵 FC Barcelona\n"
         "💻 PC\n\n"
         f"💰 **{price_text}**\n\n"
-        f"🔄 Aktualisiert: `{current_time}`\n"
+        f"🔄 Aktualisiert: `{update_text}`\n"
         "⏱️ Update alle **5 Minuten**\n"
         "━━━━━━━━━━━━━━━━━━━━"
     )
@@ -128,60 +123,36 @@ async def update_price():
     channel = client.get_channel(CHANNEL_ID)
 
     if channel is None:
-
-        print("❌ Discord Channel nicht gefunden.")
-
+        print("❌ Channel nicht gefunden.")
         return
 
-    price = await get_kika_price()
+    player = await get_kika()
 
-    print(
-        f"Kika Nazareth PC Preis: {price}"
-    )
+    content = make_message(player)
 
-    content = create_message(price)
-
-    # Alte Nachricht bearbeiten
+    # Bestehende Nachricht aktualisieren
     if message_id is not None:
 
         try:
 
-            message = await channel.fetch_message(
-                message_id
-            )
+            message = await channel.fetch_message(message_id)
 
-            await message.edit(
-                content=content
-            )
+            await message.edit(content=content)
 
-            print("✅ Discord Nachricht aktualisiert.")
+            print("✅ Preis aktualisiert.")
 
             return
 
         except discord.NotFound:
 
-            print(
-                "Alte Nachricht nicht gefunden."
-            )
-
             message_id = None
 
-        except discord.HTTPException as error:
-
-            print(
-                f"Discord Fehler: {error}"
-            )
-
-    # Falls keine Nachricht existiert:
-    message = await channel.send(
-        content
-    )
+    # Neue Nachricht erstellen
+    message = await channel.send(content)
 
     message_id = message.id
 
-    print(
-        f"✅ Neue Nachricht erstellt: {message.id}"
-    )
+    print("✅ Preisnachricht erstellt.")
 
 
 # =========================
@@ -191,12 +162,9 @@ async def update_price():
 @client.event
 async def on_ready():
 
-    print(
-        f"🤖 Bot online als {client.user}"
-    )
+    print(f"🤖 Bot online: {client.user}")
 
     if not update_price.is_running():
-
         update_price.start()
 
 
