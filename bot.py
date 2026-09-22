@@ -23,17 +23,56 @@ DISCORD_API = "https://discord.com/api/v10"
 
 PLAYER_NAME = "Kika Nazareth"
 PLAYER_RATING = 83
-
-# Wir suchen auf dem PC-Markt
 PLATFORM = "pc"
 
-# Bis zu 4 Seiten durchsuchen
-# 30 Karten pro Seite
+# Die Seite, auf der Kika zuletzt gefunden wurde.
+# Beim ersten Lauf starten wir auf Seite 1.
+PAGE_FILE = "kika_page.txt"
+
 MAX_PAGES = 4
 
 
 # ============================================================
-# KIKA NAZARETH SUCHEN
+# LETZTE SEITE LADEN
+# ============================================================
+
+def load_last_page():
+
+    try:
+
+        with open(PAGE_FILE, "r") as file:
+
+            page = int(
+                file.read().strip()
+            )
+
+            if 1 <= page <= MAX_PAGES:
+                return page
+
+    except (
+        FileNotFoundError,
+        ValueError
+    ):
+        pass
+
+    return 1
+
+
+# ============================================================
+# LETZTE SEITE SPEICHERN
+# ============================================================
+
+def save_last_page(page):
+
+    with open(PAGE_FILE, "w") as file:
+
+        file.write(
+            str(page)
+        )
+
+
+# ============================================================
+# KIKA SUCHEN
 # ============================================================
 
 async def get_kika():
@@ -43,12 +82,25 @@ async def get_kika():
         "Accept": "application/json",
     }
 
+    last_page = load_last_page()
+
+    # Zuerst die zuletzt erfolgreiche Seite probieren.
+    pages_to_check = [last_page]
+
+    # Falls Kika dort nicht mehr ist,
+    # die restlichen Seiten durchsuchen.
+    for page in range(1, MAX_PAGES + 1):
+
+        if page not in pages_to_check:
+
+            pages_to_check.append(page)
+
     async with aiohttp.ClientSession() as session:
 
-        for page in range(1, MAX_PAGES + 1):
+        for page in pages_to_check:
 
             print(
-                f"🔎 Suche Kika auf Seite {page}..."
+                f"🔎 Suche auf Seite {page}..."
             )
 
             params = {
@@ -70,7 +122,6 @@ async def get_kika():
                     f"{response.status}"
                 )
 
-                # API-Fehler
                 if response.status != 200:
 
                     print(
@@ -93,11 +144,11 @@ async def get_kika():
 
             print(
                 f"Seite {page}: "
-                f"{len(players)} Karten gefunden."
+                f"{len(players)} Karten"
             )
 
             # ----------------------------------------
-            # Spieler durchsuchen
+            # Kika suchen
             # ----------------------------------------
 
             for player in players:
@@ -113,7 +164,6 @@ async def get_kika():
                     "rating"
                 )
 
-                # Kika gefunden
                 if (
                     name.casefold()
                     == PLAYER_NAME.casefold()
@@ -134,11 +184,11 @@ async def get_kika():
                     )
 
                     print(
-                        f"Name: {name}"
+                        f"Seite: {page}"
                     )
 
                     print(
-                        f"Rating: {rating}"
+                        f"Preis: {price} Coins"
                     )
 
                     print(
@@ -157,41 +207,33 @@ async def get_kika():
                     )
 
                     print(
-                        f"PC Preis: {price}"
-                    )
-
-                    print(
                         "================================"
                     )
+
+                    # Seite für den nächsten Lauf merken.
+                    save_last_page(page)
 
                     return player
 
             # ----------------------------------------
-            # Prüfen, ob weitere Seiten existieren
+            # Wenn keine weitere Seite existiert
             # ----------------------------------------
 
-            next_page = api_data.get(
+            if api_data.get(
                 "next_page"
-            )
-
-            if next_page is None:
-
-                print(
-                    "Keine weiteren Seiten vorhanden."
-                )
+            ) is None:
 
                 break
 
     print(
-        "❌ Kika Nazareth wurde "
-        "nicht gefunden."
+        "❌ Kika Nazareth nicht gefunden."
     )
 
     return None
 
 
 # ============================================================
-# DISCORD NACHRICHT ERSTELLEN
+# DISCORD NACHRICHT
 # ============================================================
 
 def create_message(player):
@@ -201,10 +243,6 @@ def create_message(player):
     ).strftime(
         "%d.%m.%Y %H:%M UTC"
     )
-
-    # ----------------------------------------
-    # Preis
-    # ----------------------------------------
 
     if player is None:
 
@@ -230,10 +268,6 @@ def create_message(player):
                 f"{price:,} Coins"
                 .replace(",", ".")
             )
-
-    # ----------------------------------------
-    # Discord Nachricht
-    # ----------------------------------------
 
     return (
         "━━━━━━━━━━━━━━━━━━━━\n"
@@ -269,10 +303,6 @@ async def update_discord(
             "KikaPriceBot/1.0",
     }
 
-    # ----------------------------------------
-    # Channel-Nachrichten abrufen
-    # ----------------------------------------
-
     messages_url = (
         f"{DISCORD_API}/channels/"
         f"{CHANNEL_ID}/messages?limit=100"
@@ -300,10 +330,7 @@ async def update_discord(
 
             messages = await response.json()
 
-        # ----------------------------------------
-        # Vorhandene Kika-Nachricht suchen
-        # ----------------------------------------
-
+        # Bestehende Kika-Nachricht suchen.
         existing_message = None
 
         for message in messages:
@@ -329,7 +356,7 @@ async def update_discord(
                 break
 
         # ----------------------------------------
-        # Nachricht bearbeiten
+        # Bestehende Nachricht bearbeiten
         # ----------------------------------------
 
         if existing_message:
@@ -374,7 +401,7 @@ async def update_discord(
                 return False
 
         # ----------------------------------------
-        # Noch keine Nachricht vorhanden
+        # Neue Nachricht erstellen
         # ----------------------------------------
 
         create_url = (
@@ -446,18 +473,15 @@ async def main():
     )
 
     print(
+        f"Letzte bekannte Seite: "
+        f"{load_last_page()}"
+    )
+
+    print(
         "========================================"
     )
 
-    # ----------------------------------------
-    # Kika abrufen
-    # ----------------------------------------
-
     player = await get_kika()
-
-    # ----------------------------------------
-    # Discord Nachricht erstellen
-    # ----------------------------------------
 
     message = create_message(
         player
@@ -472,10 +496,6 @@ async def main():
     print(
         "----------------------------------------"
     )
-
-    # ----------------------------------------
-    # Discord aktualisieren
-    # ----------------------------------------
 
     success = await update_discord(
         message
@@ -503,10 +523,6 @@ async def main():
         "========================================"
     )
 
-
-# ============================================================
-# START
-# ============================================================
 
 if __name__ == "__main__":
 
