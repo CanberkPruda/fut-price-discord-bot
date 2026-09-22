@@ -69,19 +69,38 @@ async def get_kika():
 
     for player in players:
 
-        if (
-            player.get("name") == PLAYER_NAME
-            and player.get("rating") == PLAYER_RATING
-            and player.get("position") == PLAYER_POSITION
-            and player.get("club") == PLAYER_CLUB
-            and player.get("card_type") == PLAYER_CARD_TYPE
-        ):
-            print(
-                f"Kika gefunden: {player.get('price')} Coins"
-            )
+    name = str(player.get("name", "")).strip()
+    rating = player.get("rating")
 
-            return player
+    if (
+        name.lower() == "kika nazareth"
+        and int(rating) == 83
+    ):
+        print(
+            f"✅ Kika gefunden: "
+            f"{player.get('price')} Coins"
+        )
 
+        print(
+            f"Karte: {player.get('position')} | "
+            f"{player.get('club')} | "
+            f"{player.get('card_type')}"
+        )
+
+        return player
+
+print("❌ Kika Nazareth nicht gefunden.")
+
+print("Gefundene Spieler auf dieser Seite:")
+
+for player in players:
+    print(
+        player.get("name"),
+        player.get("rating"),
+        player.get("price")
+    )
+
+return None
     print("❌ Kika Nazareth wurde nicht gefunden.")
 
     return None
