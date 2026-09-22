@@ -2,51 +2,111 @@ name: Kika Price Update
 
 on:
   workflow_dispatch:
+
   schedule:
     - cron: "*/5 * * * *"
+
 
 permissions:
   contents: read
 
+
 jobs:
+
   update-price:
+
     runs-on: ubuntu-latest
 
     env:
+
       DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
+
       CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
+
       PARSE_API_KEY: ${{ secrets.PARSE_API_KEY }}
 
+
     steps:
+
+      # ---------------------------------------------
+      # Repository laden
+      # ---------------------------------------------
+
       - name: Repository auschecken
+
         uses: actions/checkout@v4
 
+
+      # ---------------------------------------------
+      # Python installieren
+      # ---------------------------------------------
+
       - name: Python einrichten
+
         uses: actions/setup-python@v5
+
         with:
+
           python-version: "3.12"
 
+
+      # ---------------------------------------------
+      # Abhängigkeiten installieren
+      # ---------------------------------------------
+
       - name: Abhängigkeiten installieren
-        run: pip install aiohttp
+
+        run: |
+
+          python -m pip install --upgrade pip
+
+          pip install aiohttp
+
+
+      # ---------------------------------------------
+      # Secrets prüfen
+      # ---------------------------------------------
 
       - name: Secrets prüfen
+
         run: |
+
           if [ -z "$DISCORD_TOKEN" ]; then
+
             echo "❌ DISCORD_TOKEN fehlt"
+
             exit 1
+
           fi
+
 
           if [ -z "$CHANNEL_ID" ]; then
+
             echo "❌ CHANNEL_ID fehlt"
+
             exit 1
+
           fi
 
+
           if [ -z "$PARSE_API_KEY" ]; then
+
             echo "❌ PARSE_API_KEY fehlt"
+
             exit 1
+
           fi
+
 
           echo "✅ Alle drei Secrets sind vorhanden"
 
+
+      # ---------------------------------------------
+      # Bot ausführen
+      # ---------------------------------------------
+
       - name: Kika Preis aktualisieren
-        run: python bot.py
+
+        run: |
+
+          python bot.py
