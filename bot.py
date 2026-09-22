@@ -1,10 +1,13 @@
 import os
-import aiohttp
+import asyncio
 from datetime import datetime, timezone
 
-# =========================
+import aiohttp
+
+
+# ============================================================
 # KONFIGURATION
-# =========================
+# ============================================================
 
 DISCORD_TOKEN = os.environ["DISCORD_TOKEN"]
 CHANNEL_ID = os.environ["CHANNEL_ID"]
@@ -18,22 +21,29 @@ PARSE_URL = (
 
 DISCORD_API = "https://discord.com/api/v10"
 
-# =========================
-# KIKA ABRUFEN
-# =========================
+PLAYER_NAME = "Kika Nazareth"
+PLAYER_RATING = 83
+PLAYER_POSITION = "CM"
+PLAYER_CLUB = "FC Barcelona"
+PLAYER_CARD_TYPE = "Gold Rare"
+
+
+# ============================================================
+# FUT.GG / PARSE PREIS ABRUFEN
+# ============================================================
 
 async def get_kika():
 
     headers = {
         "X-API-Key": PARSE_API_KEY,
-        "Accept": "application/json"
+        "Accept": "application/json",
     }
 
     params = {
         "page": 1,
         "platform": "pc",
         "max_rating": 83,
-        "min_rating": 83
+        "min_rating": 83,
     }
 
     async with aiohttp.ClientSession() as session:
@@ -42,11 +52,12 @@ async def get_kika():
             PARSE_URL,
             headers=headers,
             params=params,
-            timeout=30
+            timeout=30,
         ) as response:
 
+            print(f"Parse API HTTP Status: {response.status}")
+
             if response.status != 200:
-                print("Parse API Fehler:", response.status)
                 print(await response.text())
                 return None
 
@@ -54,157 +65,260 @@ async def get_kika():
 
     players = data.get("data", {}).get("players", [])
 
+    print(f"Gefundene 83er Karten: {len(players)}")
+
     for player in players:
 
         if (
-            player.get("name") == "Kika Nazareth"
-            and player.get("rating") == 83
-            and player.get("position") == "CM"
-            and player.get("club") == "FC Barcelona"
-            and player.get("card_type") == "Gold Rare"
+            player.get("name") == PLAYER_NAME
+            and player.get("rating") == PLAYER_RATING
+            and player.get("position") == PLAYER_POSITION
+            and player.get("club") == PLAYER_CLUB
+            and player.get("card_type") == PLAYER_CARD_TYPE
         ):
+            print(
+                f"Kika gefunden: {player.get('price')} Coins"
+            )
+
             return player
 
-    print("Kika Nazareth nicht gefunden.")
+    print("❌ Kika Nazareth wurde nicht gefunden.")
+
     return None
 
 
-# =========================
+# ============================================================
 # DISCORD NACHRICHT
-# =========================
+# ============================================================
 
-def make_message(player):
+def create_message(player):
 
-    now = datetime.now(timezone.utc)
+    current_time = datetime.now(
+        timezone.utc
+    ).strftime("%d.%m.%Y %H:%M UTC")
 
     if player is None:
+
         price_text = "❌ Preis nicht verfügbar"
+
     else:
-        price = player["price"]
-        price_text = f"{price:,} Coins".replace(",", ".")
+
+        price = player.get("price")
+
+        if price is None:
+            price_text = "❌ Preis nicht verfügbar"
+        else:
+            price_text = f"{price:,} Coins".replace(",", ".")
 
     return (
         "━━━━━━━━━━━━━━━━━━━━\n"
         "🇵🇹 **Kika Nazareth — 83 GES**\n\n"
         "⭐ **CM • Gold Rare**\n"
         "🔵 FC Barcelona\n"
-        "💻 PC\n\n"
+        "💻 **PC Markt**\n\n"
         f"💰 **{price_text}**\n\n"
-        f"🔄 Aktualisiert: `{now.strftime('%d.%m.%Y %H:%M')} UTC`\n"
-        "⏱️ Update alle **5 Minuten**\n"
+        f"🔄 Aktualisiert: `{current_time}`\n"
+        "⏱️ Automatische Aktualisierung alle **5 Minuten**\n"
         "━━━━━━━━━━━━━━━━━━━━"
     )
 
 
-# =========================
-# DISCORD
-# =========================
+# ============================================================
+# DISCORD NACHRICHT SUCHEN / AKTUALISIEREN
+# ============================================================
 
-async def update_discord(message):
+async def update_discord(message_content):
 
     headers = {
         "Authorization": f"Bot {DISCORD_TOKEN}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "User-Agent": "KikaPriceBot/1.0",
     }
+
+    channel_url = (
+        f"{DISCORD_API}/channels/"
+        f"{CHANNEL_ID}/messages?limit=100"
+    )
 
     async with aiohttp.ClientSession() as session:
 
-        # Letzte 100 Nachrichten des Channels holen
-        url = (
-            f"{DISCORD_API}/channels/"
-            f"{CHANNEL_ID}/messages?limit=100"
-        )
+        # ----------------------------------------------------
+        # Vorhandene Nachrichten abrufen
+        # ----------------------------------------------------
 
         async with session.get(
-            url,
-            headers=headers
+            channel_url,
+            headers=headers,
         ) as response:
 
+            print(
+                f"Discord GET Status: {response.status}"
+            )
+
             if response.status != 200:
-                print("Discord Fehler beim Lesen:", response.status)
+
                 print(await response.text())
-                return
+
+                return False
 
             messages = await response.json()
 
-        # Unsere bestehende Bot-Nachricht suchen
+        # ----------------------------------------------------
+        # Unsere Kika-Nachricht suchen
+        # ----------------------------------------------------
+
         existing_message = None
 
-        for msg in messages:
+        for message in messages:
+
+            author = message.get("author", {})
 
             if (
-                msg.get("author", {}).get("bot") is True
-                and "Kika Nazareth" in msg.get("content", "")
+                author.get("bot") is True
+                and "Kika Nazareth" in message.get(
+                    "content",
+                    ""
+                )
             ):
-                existing_message = msg
+
+                existing_message = message
+
                 break
 
-        # Nachricht bearbeiten
+        # ----------------------------------------------------
+        # Vorhandene Nachricht bearbeiten
+        # ----------------------------------------------------
+
         if existing_message:
 
             message_id = existing_message["id"]
 
-            url = (
+            edit_url = (
                 f"{DISCORD_API}/channels/"
-                f"{CHANNEL_ID}/messages/{message_id}"
+                f"{CHANNEL_ID}/messages/"
+                f"{message_id}"
             )
 
             async with session.patch(
-                url,
+                edit_url,
                 headers=headers,
-                json={"content": message}
+                json={
+                    "content": message_content
+                },
             ) as response:
+
+                print(
+                    f"Discord PATCH Status: {response.status}"
+                )
 
                 if response.status == 200:
-                    print("✅ Discord Nachricht aktualisiert.")
-                else:
-                    print("Discord Fehler beim Bearbeiten:")
-                    print(response.status)
-                    print(await response.text())
 
-        # Falls noch keine Nachricht existiert
-        else:
+                    print(
+                        "✅ Bestehende Discord-Nachricht aktualisiert."
+                    )
 
-            url = (
-                f"{DISCORD_API}/channels/"
-                f"{CHANNEL_ID}/messages"
+                    return True
+
+                print(await response.text())
+
+                return False
+
+        # ----------------------------------------------------
+        # Noch keine Nachricht vorhanden → neue erstellen
+        # ----------------------------------------------------
+
+        create_url = (
+            f"{DISCORD_API}/channels/"
+            f"{CHANNEL_ID}/messages"
+        )
+
+        async with session.post(
+            create_url,
+            headers=headers,
+            json={
+                "content": message_content
+            },
+        ) as response:
+
+            print(
+                f"Discord POST Status: {response.status}"
             )
 
-            async with session.post(
-                url,
-                headers=headers,
-                json={"content": message}
-            ) as response:
+            if response.status in (200, 201):
 
-                if response.status in (200, 201):
-                    print("✅ Neue Discord Nachricht erstellt.")
-                else:
-                    print("Discord Fehler beim Erstellen:")
-                    print(response.status)
-                    print(await response.text())
+                print(
+                    "✅ Neue Discord-Nachricht erstellt."
+                )
+
+                return True
+
+            print(await response.text())
+
+            return False
 
 
-# =========================
-# START
-# =========================
+# ============================================================
+# HAUPTPROGRAMM
+# ============================================================
 
 async def main():
 
+    print("========================================")
+    print("🇵🇹 Kika Nazareth Price Bot")
+    print("========================================")
+
+    print(
+        f"Spieler: {PLAYER_NAME}"
+    )
+
+    print(
+        f"Rating: {PLAYER_RATING}"
+    )
+
+    print(
+        f"Markt: PC"
+    )
+
+    print(
+        f"Channel ID: {CHANNEL_ID}"
+    )
+
+    print("----------------------------------------")
+
+    # Preis abrufen
     player = await get_kika()
 
-    if player:
+    # Discord Nachricht erstellen
+    message = create_message(player)
+
+    print("----------------------------------------")
+
+    print(message)
+
+    print("----------------------------------------")
+
+    # Discord aktualisieren
+    success = await update_discord(
+        message
+    )
+
+    print("----------------------------------------")
+
+    if success:
+
         print(
-            f"Kika Nazareth PC Preis: "
-            f"{player['price']} Coins"
+            "✅ Preis erfolgreich aktualisiert."
         )
+
     else:
-        print("Preis konnte nicht abgerufen werden.")
 
-    message = make_message(player)
+        print(
+            "❌ Discord konnte nicht aktualisiert werden."
+        )
 
-    await update_discord(message)
+    print("========================================")
 
 
 if __name__ == "__main__":
-    import asyncio
+
     asyncio.run(main())
