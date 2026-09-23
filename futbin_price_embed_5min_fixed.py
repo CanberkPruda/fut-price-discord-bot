@@ -43,9 +43,10 @@ async def get_futbin_price(session):
     }
 
     params = {
-        "player_id": PLAYER_ID,
-        "year": YEAR
-    }
+    "slug": "player",
+    "player_id": PLAYER_ID,
+    "year": YEAR
+}
 
     async with session.get(
         FUTBIN_URL,
