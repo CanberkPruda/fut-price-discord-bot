@@ -1,4 +1,6 @@
 import os
+import json
+import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -31,6 +33,12 @@ BANNER_URL = (
 )
 
 BERLIN_TZ = ZoneInfo("Europe/Berlin")
+
+# Datei für die 12-Stunden-Preishistorie
+HISTORY_FILE = "price_history.json"
+
+# 12 Stunden in Sekunden
+HISTORY_SECONDS = 12 * 60 * 60
 
 
 # ============================================================
@@ -82,7 +90,9 @@ async def get_futbin_price(session):
 
     except Exception as e:
 
-        print(f"❌ Fehler bei der FUTBIN-Anfrage: {e}")
+        print(
+            f"❌ Fehler bei der FUTBIN-Anfrage: {e}"
+        )
 
         return None, None
 
@@ -95,7 +105,6 @@ async def get_futbin_price(session):
     if not player_data:
 
         print("❌ 'data' wurde nicht gefunden.")
-
         print(data)
 
         return None, None
@@ -107,7 +116,6 @@ async def get_futbin_price(session):
     if not prices:
 
         print("❌ 'prices' wurde nicht gefunden.")
-
         print(player_data)
 
         return None, None
@@ -119,7 +127,6 @@ async def get_futbin_price(session):
     if not pc_data:
 
         print("❌ 'pc' wurde nicht gefunden.")
-
         print(prices)
 
         return None, None
@@ -186,6 +193,145 @@ def format_price(price):
 
 
 # ============================================================
+# 12-STUNDEN-HISTORIE LADEN
+# ============================================================
+
+def load_price_history():
+
+    if not os.path.exists(HISTORY_FILE):
+
+        print(
+            "ℹ️ Noch keine Preishistorie vorhanden."
+        )
+
+        return []
+
+    try:
+
+        with open(
+            HISTORY_FILE,
+            "r",
+            encoding="utf-8"
+        ) as file:
+
+            history = json.load(file)
+
+        if not isinstance(history, list):
+
+            return []
+
+        print(
+            f"📚 {len(history)} historische "
+            f"Preise geladen."
+        )
+
+        return history
+
+    except Exception as e:
+
+        print(
+            f"⚠️ Historie konnte nicht geladen "
+            f"werden: {e}"
+        )
+
+        return []
+
+
+# ============================================================
+# 12-STUNDEN-HISTORIE SPEICHERN
+# ============================================================
+
+def save_price_history(history):
+
+    try:
+
+        with open(
+            HISTORY_FILE,
+            "w",
+            encoding="utf-8"
+        ) as file:
+
+            json.dump(
+                history,
+                file,
+                ensure_ascii=False,
+                indent=2
+            )
+
+        print(
+            f"💾 Preishistorie gespeichert: "
+            f"{len(history)} Einträge"
+        )
+
+    except Exception as e:
+
+        print(
+            f"⚠️ Historie konnte nicht gespeichert "
+            f"werden: {e}"
+        )
+
+
+# ============================================================
+# PREIS ZUR HISTORIE HINZUFÜGEN
+# ============================================================
+
+def update_price_history(current_price):
+
+    now = int(time.time())
+
+    history = load_price_history()
+
+    # aktuellen Preis hinzufügen
+    history.append({
+        "timestamp": now,
+        "price": current_price
+    })
+
+    # Nur die letzten 12 Stunden behalten
+    cutoff = now - HISTORY_SECONDS
+
+    history = [
+        entry
+        for entry in history
+        if (
+            isinstance(entry, dict)
+            and entry.get("timestamp", 0) >= cutoff
+            and isinstance(entry.get("price"), (int, float))
+        )
+    ]
+
+    save_price_history(history)
+
+    return history
+
+
+# ============================================================
+# 12-STUNDEN-HÖCHSTPREIS
+# ============================================================
+
+def get_12h_high(history, current_price):
+
+    prices = []
+
+    for entry in history:
+
+        price = entry.get("price")
+
+        if isinstance(price, (int, float)):
+
+            prices.append(int(price))
+
+    # Falls noch keine Historie existiert
+    if not prices:
+
+        return current_price
+
+    highest = max(prices)
+
+    return highest
+
+
+# ============================================================
 # DISCORD
 # ============================================================
 
@@ -208,9 +354,10 @@ async def on_ready():
     print("🤖 FUT PRICE BOT GESTARTET")
     print("========================================")
     print(f"👤 Bot: {client.user}")
-    print(f"🎯 Player: Kika Nazareth")
-    print(f"💻 Plattform: PC")
-    print(f"🟣 Quelle: FUTBIN")
+    print("🎯 Player: Kika Nazareth")
+    print("💻 Plattform: PC")
+    print("🟣 Quelle: FUTBIN")
+    print("📈 12h Höchstpreis aktiviert")
     print("========================================")
     print("")
 
@@ -222,7 +369,9 @@ async def on_ready():
 
     if channel is None:
 
-        print("❌ Discord Channel nicht gefunden.")
+        print(
+            "❌ Discord Channel nicht gefunden."
+        )
 
         await client.close()
 
@@ -239,8 +388,8 @@ async def on_ready():
 
     async with aiohttp.ClientSession() as session:
 
-        futbin_price, update_age = await get_futbin_price(
-            session
+        futbin_price, update_age = (
+            await get_futbin_price(session)
         )
 
     # ========================================================
@@ -250,13 +399,39 @@ async def on_ready():
     if futbin_price is None:
 
         print("")
-        print("❌ FUTBIN Preis konnte nicht geladen werden.")
-        print("❌ Discord Nachricht wird NICHT verändert.")
+        print(
+            "❌ FUTBIN Preis konnte nicht geladen werden."
+        )
+        print(
+            "❌ Discord Nachricht wird NICHT verändert."
+        )
         print("")
 
         await client.close()
 
         return
+
+    # ========================================================
+    # PREISHISTORIE AKTUALISIEREN
+    # ========================================================
+
+    history = update_price_history(
+        futbin_price
+    )
+
+    # ========================================================
+    # 12H HÖCHSTPREIS BERECHNEN
+    # ========================================================
+
+    high_12h = get_12h_high(
+        history,
+        futbin_price
+    )
+
+    print(
+        f"📈 12h Höchstpreis: "
+        f"{format_price(high_12h)} Coins"
+    )
 
     # ========================================================
     # BERLIN ZEIT
@@ -303,6 +478,21 @@ async def on_ready():
 
         value=(
             f"**{format_price(futbin_price)} Coins**"
+        ),
+
+        inline=False
+    )
+
+    # ========================================================
+    # 12H HÖCHSTPREIS
+    # ========================================================
+
+    embed.add_field(
+
+        name="📈 12h Höchstpreis",
+
+        value=(
+            f"**{format_price(high_12h)} Coins**"
         ),
 
         inline=False
@@ -376,7 +566,9 @@ async def on_ready():
     existing_message = None
 
     print("")
-    print("🔎 Suche bestehende Kika-Nachricht...")
+    print(
+        "🔎 Suche bestehende Kika-Nachricht..."
+    )
 
     try:
 
@@ -384,11 +576,9 @@ async def on_ready():
             limit=50
         ):
 
-            # Nur Nachrichten des Bots
             if message.author != client.user:
                 continue
 
-            # Nur Nachrichten mit Embed
             if not message.embeds:
                 continue
 
@@ -404,8 +594,8 @@ async def on_ready():
                 existing_message = message
 
                 print(
-                    f"✅ Bestehende Nachricht gefunden: "
-                    f"{message.id}"
+                    f"✅ Bestehende Nachricht "
+                    f"gefunden: {message.id}"
                 )
 
                 break
@@ -436,6 +626,10 @@ async def on_ready():
             print(
                 f"💰 FUTBIN PC: "
                 f"{format_price(futbin_price)} Coins"
+            )
+            print(
+                f"📈 12h Hoch: "
+                f"{format_price(high_12h)} Coins"
             )
             print(
                 f"🕒 FUTBIN: "
@@ -474,6 +668,10 @@ async def on_ready():
             print(
                 f"💰 FUTBIN PC: "
                 f"{format_price(futbin_price)} Coins"
+            )
+            print(
+                f"📈 12h Hoch: "
+                f"{format_price(high_12h)} Coins"
             )
             print("========================================")
             print("")
