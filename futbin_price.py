@@ -110,7 +110,7 @@ def create_message(player):
     if player is None or player.get("price") is None:
         price_text = "❌ Preis nicht verfügbar"
     else:
-        price = int(player["price"])
+        price = int(str(player["price"]).replace(",", "").replace(".", ""))
         price_text = f"{price:,} Coins".replace(",", ".")
 
     updated = player.get("updated") if player else None
