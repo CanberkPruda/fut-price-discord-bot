@@ -85,13 +85,9 @@ jobs:
 
 
       # Preis aktualisieren
-      - name: Kika Preis aktualisieren
-        run: |
-          python bot.py
-          
-      - name: FUTBIN Preis aktualisieren
-        run: |
-         python futbin_price.py
+      - name: Kika Preise aktualisieren
+  run: |
+    python futbin_price_combined.py
 
 
       # Neue Seite speichern
