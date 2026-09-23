@@ -11,24 +11,53 @@ permissions:
   contents: read
 
 jobs:
+
   update-price:
 
     runs-on: ubuntu-latest
 
     steps:
 
+      # ==========================================
+      # REPOSITORY
+      # ==========================================
+
       - name: Repository auschecken
         uses: actions/checkout@v4
+
+      # ==========================================
+      # PYTHON
+      # ==========================================
 
       - name: Python einrichten
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
+      # ==========================================
+      # ABHÄNGIGKEITEN
+      # ==========================================
+
       - name: Abhängigkeiten installieren
         run: |
           python -m pip install --upgrade pip
           pip install aiohttp discord.py
+
+      # ==========================================
+      # 12H HISTORIE AUS CACHE LADEN
+      # ==========================================
+
+      - name: 12h Preishistorie laden
+        uses: actions/cache/restore@v4
+        with:
+          path: price_history.json
+          key: kika-price-history-${{ github.run_id }}
+          restore-keys: |
+            kika-price-history-
+
+      # ==========================================
+      # SECRETS PRÜFEN
+      # ==========================================
 
       - name: Secrets prüfen
         env:
@@ -36,6 +65,7 @@ jobs:
           CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
           PARSE_API_KEY: ${{ secrets.PARSE_API_KEY }}
         run: |
+
           if [ -z "$DISCORD_TOKEN" ]; then
             echo "❌ DISCORD_TOKEN fehlt"
             exit 1
@@ -53,6 +83,10 @@ jobs:
 
           echo "✅ Alle drei Secrets sind vorhanden"
 
+      # ==========================================
+      # BOT STARTEN
+      # ==========================================
+
       - name: Kika FUTBIN Preis aktualisieren
         env:
           DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
@@ -60,3 +94,13 @@ jobs:
           PARSE_API_KEY: ${{ secrets.PARSE_API_KEY }}
         run: |
           python futbin_price_embed_5min_fixed.py
+
+      # ==========================================
+      # 12H HISTORIE SPEICHERN
+      # ==========================================
+
+      - name: 12h Preishistorie speichern
+        uses: actions/cache/save@v4
+        with:
+          path: price_history.json
+          key: kika-price-history-${{ github.run_id }}
