@@ -6,9 +6,9 @@ import aiohttp
 import discord
 
 
-# =========================
+# ============================================================
 # KONFIGURATION
-# =========================
+# ============================================================
 
 DISCORD_TOKEN = os.environ["DISCORD_TOKEN"]
 CHANNEL_ID = int(os.environ["CHANNEL_ID"])
@@ -22,6 +22,7 @@ FUTBIN_URL = (
 
 PLAYER_ID = "506"
 YEAR = "27"
+SLUG = "player"
 
 BANNER_URL = (
     "https://raw.githubusercontent.com/"
@@ -32,9 +33,9 @@ BANNER_URL = (
 BERLIN_TZ = ZoneInfo("Europe/Berlin")
 
 
-# =========================
-# FUTBIN PREIS HOLEN
-# =========================
+# ============================================================
+# FUTBIN PREIS ABFRAGEN
+# ============================================================
 
 async def get_futbin_price(session):
 
@@ -43,92 +44,150 @@ async def get_futbin_price(session):
     }
 
     params = {
-    "slug": "player",
-    "player_id": PLAYER_ID,
-    "year": YEAR
-}
+        "slug": SLUG,
+        "player_id": PLAYER_ID,
+        "year": YEAR
+    }
 
-    async with session.get(
-        FUTBIN_URL,
-        headers=headers,
-        params=params
-    ) as response:
+    print("🔎 Frage FUTBIN ab...")
+    print(f"   Player ID: {PLAYER_ID}")
+    print(f"   Year: {YEAR}")
 
-        print(f"🌐 FUTBIN HTTP Status: {response.status}")
+    try:
 
-        if response.status != 200:
-            error_text = await response.text()
+        async with session.get(
+            FUTBIN_URL,
+            headers=headers,
+            params=params
+        ) as response:
 
-            print(f"❌ FUTBIN API Fehler: HTTP {response.status}")
-            print(error_text)
+            print(f"🌐 FUTBIN HTTP Status: {response.status}")
 
-            return None, None
+            if response.status != 200:
 
-        data = await response.json()
+                error_text = await response.text()
 
-        print("✅ FUTBIN API Antwort erhalten")
-
-        # =========================
-        # PC PREIS AUSLESEN
-        # =========================
-
-        prices = data.get("prices", {})
-
-        pc_data = prices.get("pc", {})
-
-        price = pc_data.get("price")
-
-        update_age = pc_data.get(
-            "updated",
-            "Unbekannt"
-        )
-
-        print(f"💻 FUTBIN PC Preis: {price}")
-        print(f"🕒 FUTBIN Update: {update_age}")
-
-        if price is None:
-            print("❌ Kein PC-Preis in der FUTBIN-Antwort gefunden.")
-            print(data)
-
-            return None, None
-
-        try:
-
-            if isinstance(price, int):
-                price = price
-
-            else:
-                price = int(
-                    str(price)
-                    .replace(",", "")
-                    .replace(".", "")
-                    .replace(" ", "")
-                    .replace("K", "000")
+                print(
+                    f"❌ FUTBIN API Fehler: "
+                    f"HTTP {response.status}"
                 )
 
-        except (ValueError, TypeError):
+                print(error_text)
 
-            print(
-                f"❌ Preis konnte nicht verarbeitet werden: {price}"
-            )
+                return None, None
 
-            return None, None
+            data = await response.json()
 
-        return price, update_age
+            print("✅ FUTBIN API Antwort erhalten")
+
+    except Exception as e:
+
+        print(f"❌ Fehler bei der FUTBIN-Anfrage: {e}")
+
+        return None, None
+
+    # ========================================================
+    # RESPONSE AUSLESEN
+    # ========================================================
+
+    player_data = data.get("data", {})
+
+    if not player_data:
+
+        print("❌ 'data' wurde nicht gefunden.")
+
+        print(data)
+
+        return None, None
+
+    print("📦 Player Data gefunden")
+
+    prices = player_data.get("prices", {})
+
+    if not prices:
+
+        print("❌ 'prices' wurde nicht gefunden.")
+
+        print(player_data)
+
+        return None, None
+
+    print("💰 Prices gefunden")
+
+    pc_data = prices.get("pc", {})
+
+    if not pc_data:
+
+        print("❌ 'pc' wurde nicht gefunden.")
+
+        print(prices)
+
+        return None, None
+
+    print(f"💻 PC Daten: {pc_data}")
+
+    price = pc_data.get("price")
+
+    update_age = pc_data.get(
+        "updated",
+        "Unbekannt"
+    )
+
+    print(f"💻 FUTBIN PC Preis: {price}")
+    print(f"🕒 FUTBIN Update: {update_age}")
+
+    if price is None:
+
+        print("❌ Kein PC-Preis gefunden.")
+
+        return None, None
+
+    # ========================================================
+    # PREIS IN ZAHL UMWANDELN
+    # ========================================================
+
+    try:
+
+        price_string = str(price)
+
+        price_string = (
+            price_string
+            .replace(",", "")
+            .replace(".", "")
+            .replace(" ", "")
+        )
+
+        price = int(price_string)
+
+    except (ValueError, TypeError):
+
+        print(
+            f"❌ Preis konnte nicht verarbeitet werden: "
+            f"{price}"
+        )
+
+        return None, None
+
+    print(
+        f"✅ Preis erfolgreich verarbeitet: "
+        f"{price} Coins"
+    )
+
+    return price, update_age
 
 
-# =========================
+# ============================================================
 # PREIS FORMATIEREN
-# =========================
+# ============================================================
 
 def format_price(price):
 
     return f"{price:,}".replace(",", ".")
 
 
-# =========================
-# DISCORD BOT
-# =========================
+# ============================================================
+# DISCORD
+# ============================================================
 
 intents = discord.Intents.default()
 
@@ -137,10 +196,27 @@ client = discord.Client(
 )
 
 
+# ============================================================
+# BOT START
+# ============================================================
+
 @client.event
 async def on_ready():
 
-    print(f"🤖 Eingeloggt als {client.user}")
+    print("")
+    print("========================================")
+    print("🤖 FUT PRICE BOT GESTARTET")
+    print("========================================")
+    print(f"👤 Bot: {client.user}")
+    print(f"🎯 Player: Kika Nazareth")
+    print(f"💻 Plattform: PC")
+    print(f"🟣 Quelle: FUTBIN")
+    print("========================================")
+    print("")
+
+    # ========================================================
+    # DISCORD CHANNEL
+    # ========================================================
 
     channel = client.get_channel(CHANNEL_ID)
 
@@ -152,9 +228,14 @@ async def on_ready():
 
         return
 
-    # =========================
+    print(
+        f"✅ Discord Channel gefunden: "
+        f"{channel.name}"
+    )
+
+    # ========================================================
     # FUTBIN ABFRAGEN
-    # =========================
+    # ========================================================
 
     async with aiohttp.ClientSession() as session:
 
@@ -162,19 +243,24 @@ async def on_ready():
             session
         )
 
+    # ========================================================
+    # FEHLER
+    # ========================================================
+
     if futbin_price is None:
 
-        print(
-            "❌ FUTBIN Preis konnte nicht geladen werden."
-        )
+        print("")
+        print("❌ FUTBIN Preis konnte nicht geladen werden.")
+        print("❌ Discord Nachricht wird NICHT verändert.")
+        print("")
 
         await client.close()
 
         return
 
-    # =========================
+    # ========================================================
     # BERLIN ZEIT
-    # =========================
+    # ========================================================
 
     now_berlin = datetime.now(
         BERLIN_TZ
@@ -188,9 +274,9 @@ async def on_ready():
         "%H:%M"
     )
 
-    # =========================
-    # EMBED
-    # =========================
+    # ========================================================
+    # DISCORD EMBED
+    # ========================================================
 
     embed = discord.Embed(
 
@@ -207,9 +293,9 @@ async def on_ready():
         timestamp=now_berlin
     )
 
-    # =========================
-    # FUTBIN
-    # =========================
+    # ========================================================
+    # FUTBIN PREIS
+    # ========================================================
 
     embed.add_field(
 
@@ -222,9 +308,9 @@ async def on_ready():
         inline=False
     )
 
-    # =========================
-    # FUTBIN UPDATE
-    # =========================
+    # ========================================================
+    # FUTBIN DATENALTER
+    # ========================================================
 
     embed.add_field(
 
@@ -235,9 +321,9 @@ async def on_ready():
         inline=True
     )
 
-    # =========================
+    # ========================================================
     # LETZTE AKTUALISIERUNG
-    # =========================
+    # ========================================================
 
     embed.add_field(
 
@@ -250,9 +336,9 @@ async def on_ready():
         inline=True
     )
 
-    # =========================
+    # ========================================================
     # AUTOMATIK
-    # =========================
+    # ========================================================
 
     embed.add_field(
 
@@ -263,9 +349,9 @@ async def on_ready():
         inline=False
     )
 
-    # =========================
+    # ========================================================
     # FOOTER
-    # =========================
+    # ========================================================
 
     embed.set_footer(
 
@@ -275,19 +361,22 @@ async def on_ready():
         )
     )
 
-    # =========================
+    # ========================================================
     # BANNER
-    # =========================
+    # ========================================================
 
     embed.set_image(
         url=BANNER_URL
     )
 
-    # =========================
+    # ========================================================
     # ALTE KIKA-NACHRICHT SUCHEN
-    # =========================
+    # ========================================================
 
     existing_message = None
+
+    print("")
+    print("🔎 Suche bestehende Kika-Nachricht...")
 
     try:
 
@@ -295,69 +384,116 @@ async def on_ready():
             limit=50
         ):
 
+            # Nur Nachrichten des Bots
             if message.author != client.user:
                 continue
 
+            # Nur Nachrichten mit Embed
             if not message.embeds:
                 continue
 
-            embed_title = (
-                message.embeds[0].title
+            message_embed = message.embeds[0]
+
+            message_title = (
+                message_embed.title
                 or ""
             )
 
-            if "Kika Nazareth" in embed_title:
+            if "Kika Nazareth" in message_title:
 
                 existing_message = message
+
+                print(
+                    f"✅ Bestehende Nachricht gefunden: "
+                    f"{message.id}"
+                )
 
                 break
 
     except Exception as e:
 
         print(
-            f"⚠️ Fehler beim Durchsuchen "
-            f"des Channels: {e}"
+            f"❌ Fehler bei der Nachrichtensuche: "
+            f"{e}"
         )
 
-    # =========================
-    # DISCORD AKTUALISIEREN
-    # =========================
+    # ========================================================
+    # DISCORD NACHRICHT AKTUALISIEREN
+    # ========================================================
 
     if existing_message:
 
-        await existing_message.edit(
-            embed=embed
-        )
+        try:
 
-        print(
-            "✅ Discord Nachricht aktualisiert!"
-        )
+            await existing_message.edit(
+                embed=embed
+            )
 
-        print(
-            f"💰 Neuer Preis: "
-            f"{format_price(futbin_price)} Coins"
-        )
+            print("")
+            print("========================================")
+            print("✅ DISCORD NACHRICHT AKTUALISIERT")
+            print("========================================")
+            print(
+                f"💰 FUTBIN PC: "
+                f"{format_price(futbin_price)} Coins"
+            )
+            print(
+                f"🕒 FUTBIN: "
+                f"{update_age}"
+            )
+            print(
+                f"🔄 Update: "
+                f"{formatted_time} Uhr"
+            )
+            print("========================================")
+            print("")
+
+        except Exception as e:
+
+            print(
+                f"❌ Discord Nachricht konnte "
+                f"nicht bearbeitet werden: {e}"
+            )
+
+    # ========================================================
+    # NEUE NACHRICHT ERSTELLEN
+    # ========================================================
 
     else:
 
-        await channel.send(
-            embed=embed
-        )
+        try:
 
-        print(
-            "✅ Neue Discord Nachricht erstellt!"
-        )
+            await channel.send(
+                embed=embed
+            )
 
-        print(
-            f"💰 Preis: "
-            f"{format_price(futbin_price)} Coins"
-        )
+            print("")
+            print("========================================")
+            print("✅ NEUE DISCORD NACHRICHT ERSTELLT")
+            print("========================================")
+            print(
+                f"💰 FUTBIN PC: "
+                f"{format_price(futbin_price)} Coins"
+            )
+            print("========================================")
+            print("")
 
-    # =========================
+        except Exception as e:
+
+            print(
+                f"❌ Discord Nachricht konnte "
+                f"nicht erstellt werden: {e}"
+            )
+
+    # ========================================================
     # BOT BEENDEN
-    # =========================
+    # ========================================================
 
     await client.close()
 
+
+# ============================================================
+# START
+# ============================================================
 
 client.run(DISCORD_TOKEN)
