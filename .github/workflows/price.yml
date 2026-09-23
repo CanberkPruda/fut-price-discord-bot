@@ -7,6 +7,9 @@ on:
     types:
       - kika-price-update
 
+permissions:
+  contents: read
+
 jobs:
   update-price:
 
@@ -17,16 +20,40 @@ jobs:
       - name: Repository auschecken
         uses: actions/checkout@v4
 
-      - name: Python installieren
+      - name: Python einrichten
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Abhängigkeiten installieren
         run: |
-          pip install discord.py aiohttp
+          python -m pip install --upgrade pip
+          pip install aiohttp discord.py
 
-      - name: Kika Preis aktualisieren
+      - name: Secrets prüfen
+        env:
+          DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
+          CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
+          PARSE_API_KEY: ${{ secrets.PARSE_API_KEY }}
+        run: |
+          if [ -z "$DISCORD_TOKEN" ]; then
+            echo "❌ DISCORD_TOKEN fehlt"
+            exit 1
+          fi
+
+          if [ -z "$CHANNEL_ID" ]; then
+            echo "❌ CHANNEL_ID fehlt"
+            exit 1
+          fi
+
+          if [ -z "$PARSE_API_KEY" ]; then
+            echo "❌ PARSE_API_KEY fehlt"
+            exit 1
+          fi
+
+          echo "✅ Alle drei Secrets sind vorhanden"
+
+      - name: Kika FUTBIN Preis aktualisieren
         env:
           DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
           CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
