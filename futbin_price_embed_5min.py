@@ -215,7 +215,7 @@ def create_embed(futgg, futbin):
             "🔵 **FC Barcelona**\n"
             "💻 **PC Markt**"
         ),
-        "color": 0xD4AF37,
+        "color": 0x00C878,
         "fields": [
             {
                 "name": "💰 FUT.GG",
