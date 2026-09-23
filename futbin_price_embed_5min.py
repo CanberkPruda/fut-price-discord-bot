@@ -248,7 +248,10 @@ def create_embed(futgg, futbin):
         },
         "timestamp": now_berlin.isoformat(),
     }
-
+    
+"image": {
+    "url": "https://raw.githubusercontent.com/CanberkPruda/fut-price-discord-bot/main/bannereafc27.png"
+},
 
 # ============================================================
 # DISCORD AKTUALISIEREN
