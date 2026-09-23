@@ -1,98 +1,35 @@
-name: Kika Price Update
+name: Kika FUTBIN Price Update
 
 on:
   workflow_dispatch:
 
   repository_dispatch:
-    types: [kika-price-update]
-
-permissions:
-  contents: read
+    types:
+      - kika-price-update
 
 jobs:
   update-price:
 
     runs-on: ubuntu-latest
 
-    env:
-      DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
-      CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
-      PARSE_API_KEY: ${{ secrets.PARSE_API_KEY }}
-
     steps:
 
-      # Repository laden
       - name: Repository auschecken
         uses: actions/checkout@v4
 
-
-      # Python installieren
-      - name: Python einrichten
+      - name: Python installieren
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-
-      # Python-Abhängigkeit
       - name: Abhängigkeiten installieren
         run: |
-          python -m pip install --upgrade pip
-          pip install aiohttp
+          pip install discord.py aiohttp
 
-
-      # Letzte bekannte Kika-Seite laden
-      - name: Kika-Seite aus Cache laden
-        uses: actions/cache/restore@v4
-        with:
-          path: kika_page.txt
-          key: kika-page-${{ github.run_id }}
-          restore-keys: |
-            kika-page-
-
-
-      # Falls noch keine Seite gespeichert wurde
-      - name: Standardseite setzen
+      - name: Kika Preis aktualisieren
+        env:
+          DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
+          CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
+          PARSE_API_KEY: ${{ secrets.PARSE_API_KEY }}
         run: |
-          if [ ! -f kika_page.txt ]; then
-            echo "1" > kika_page.txt
-            echo "ℹ️ Noch keine gespeicherte Seite vorhanden."
-          else
-            echo "ℹ️ Gespeicherte Seite:"
-            cat kika_page.txt
-          fi
-
-
-      # Secrets prüfen
-      - name: Secrets prüfen
-        run: |
-
-          if [ -z "$DISCORD_TOKEN" ]; then
-            echo "❌ DISCORD_TOKEN fehlt"
-            exit 1
-          fi
-
-          if [ -z "$CHANNEL_ID" ]; then
-            echo "❌ CHANNEL_ID fehlt"
-            exit 1
-          fi
-
-          if [ -z "$PARSE_API_KEY" ]; then
-            echo "❌ PARSE_API_KEY fehlt"
-            exit 1
-          fi
-
-          echo "✅ Alle drei Secrets sind vorhanden"
-
-
-      # Preis aktualisieren
-      - name: Kika Preise aktualisieren
-        run: |
-         python futbin_price_embed_5min_fixed.py
-
-
-      # Neue Seite speichern
-      - name: Kika-Seite im Cache speichern
-        uses: actions/cache/save@v4
-        with:
-          path: kika_page.txt
-          key: kika-page-${{ github.run_id }}
+          python futbin_price_embed_5min.py
