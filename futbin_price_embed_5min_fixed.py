@@ -1,393 +1,234 @@
 import os
-import asyncio
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import aiohttp
+import discord
 
 
-# ============================================================
+# =========================
 # KONFIGURATION
-# ============================================================
+# =========================
 
 DISCORD_TOKEN = os.environ["DISCORD_TOKEN"]
-CHANNEL_ID = os.environ["CHANNEL_ID"]
+CHANNEL_ID = int(os.environ["CHANNEL_ID"])
 PARSE_API_KEY = os.environ["PARSE_API_KEY"]
 
-DISCORD_API = "https://discord.com/api/v10"
-
-FUTBIN_API_URL = (
-    "https://api.parse.bot/"
-    "scraper/21963078-8a17-40ff-a896-9b0b0ec3e828/"
+FUTBIN_URL = (
+    "https://api.parse.bot/scraper/"
+    "21963078-8a17-40ff-a896-9b0b0ec3e828/"
     "get_player_details"
 )
 
-FUTGG_API_URL = (
-    "https://api.parse.bot/"
-    "scraper/a1271aad-bcbf-4464-8762-47f1d15efa81/"
-    "list_players"
+PLAYER_ID = "506"
+YEAR = "27"
+
+BANNER_URL = (
+    "https://raw.githubusercontent.com/"
+    "CanberkPruda/fut-price-discord-bot/"
+    "main/bannereafc27.png"
 )
 
-FUTBIN_PLAYER_ID = 506
-FUTBIN_YEAR = 27
-
-PLAYER_NAME = "Kika Nazareth"
-PLAYER_RATING = 83
-
-FUTGG_MAX_PAGES = 4
-
-# Deutsche Zeit inkl. Sommer-/Winterzeit
 BERLIN_TZ = ZoneInfo("Europe/Berlin")
 
 
-# ============================================================
-# PREIS FORMATIEREN
-# ============================================================
-
-def format_price(price):
-    if price is None:
-        return "Preis nicht verfügbar"
-
-    try:
-        value = int(
-            str(price)
-            .replace(",", "")
-            .replace(".", "")
-            .strip()
-        )
-        return f"{value:,}".replace(",", ".") + " Coins"
-    except (ValueError, TypeError):
-        return "Preis nicht verfügbar"
-
-
-# ============================================================
-# FUTBIN
-# ============================================================
+# =========================
+# FUTBIN PREIS HOLEN
+# =========================
 
 async def get_futbin_price(session):
     headers = {
-        "X-API-Key": PARSE_API_KEY,
-        "Accept": "application/json",
+        "X-API-Key": PARSE_API_KEY
     }
 
     params = {
-        "player_id": FUTBIN_PLAYER_ID,
-        "year": FUTBIN_YEAR,
+        "player_id": PLAYER_ID,
+        "year": YEAR
     }
 
     async with session.get(
-        FUTBIN_API_URL,
+        FUTBIN_URL,
         headers=headers,
-        params=params,
-        timeout=30,
+        params=params
     ) as response:
 
-        print(f"FUTBIN API HTTP Status: {response.status}")
-
         if response.status != 200:
+            print(f"❌ FUTBIN API Fehler: HTTP {response.status}")
             print(await response.text())
-            return None
+            return None, None
 
-        payload = await response.json()
+        data = await response.json()
 
-    data = payload.get("data", payload)
-    prices = data.get("prices", {})
-    pc = prices.get("pc", {})
+        print("✅ FUTBIN Daten erhalten")
 
-    price = pc.get("price")
+        player = data
 
-    if price is None:
-        price = pc.get("current_price")
+        if isinstance(data, dict) and isinstance(data.get("player"), dict):
+            player = data["player"]
 
-    if price is None:
-        price = data.get("price_pc")
+        price = player.get("price")
 
-    updated = pc.get("updated")
+        if price is None:
+            print("❌ Kein FUTBIN Preis gefunden.")
+            print(data)
+            return None, None
 
-    print(f"FUTBIN PC Preis: {price}")
-    print(f"FUTBIN Update: {updated}")
+        try:
+            price = int(
+                str(price)
+                .replace(",", "")
+                .replace(".", "")
+                .replace(" ", "")
+            )
+        except ValueError:
+            print(f"❌ Preis konnte nicht gelesen werden: {price}")
+            return None, None
 
-    return {
-        "price": price,
-        "updated": updated,
-    }
+        update_age = (
+            player.get("updated")
+            or player.get("update")
+            or player.get("last_updated")
+            or player.get("updated_at")
+            or "Unbekannt"
+        )
 
-
-# ============================================================
-# FUT.GG
-# ============================================================
-
-async def get_futgg_price(session):
-    headers = {
-        "X-API-Key": PARSE_API_KEY,
-        "Accept": "application/json",
-    }
-
-    for page in range(1, FUTGG_MAX_PAGES + 1):
-
-        print(f"FUT.GG: Suche Seite {page}...")
-
-        params = {
-            "page": page,
-            "platform": "pc",
-            "max_rating": PLAYER_RATING,
-            "min_rating": PLAYER_RATING,
-        }
-
-        async with session.get(
-            FUTGG_API_URL,
-            headers=headers,
-            params=params,
-            timeout=30,
-        ) as response:
-
-            print(f"FUT.GG API HTTP Status: {response.status}")
-
-            if response.status != 200:
-                print(await response.text())
-                return None
-
-            data = await response.json()
-
-        api_data = data.get("data", {})
-        players = api_data.get("players", [])
-
-        for player in players:
-
-            name = str(player.get("name", "")).strip()
-
-            try:
-                rating = int(player.get("rating"))
-            except (ValueError, TypeError):
-                continue
-
-            if (
-                name.casefold() == PLAYER_NAME.casefold()
-                and rating == PLAYER_RATING
-            ):
-                price = player.get("price")
-
-                print(f"FUT.GG PC Preis: {price}")
-
-                return {
-                    "price": price,
-                }
-
-        if api_data.get("next_page") is None:
-            break
-
-    print("FUT.GG: Kika nicht gefunden.")
-    return None
+        return price, update_age
 
 
-# ============================================================
-# DISCORD EMBED
-# ============================================================
+# =========================
+# PREIS FORMATIEREN
+# =========================
 
-def create_embed(futgg, futbin):
+def format_price(price):
+    return f"{price:,}".replace(",", ".")
 
-    now_berlin = datetime.now(
-        BERLIN_TZ
-    )
 
-    current_time = now_berlin.strftime(
-        "%d.%m.%Y %H:%M Uhr"
-    )
+# =========================
+# DISCORD BOT
+# =========================
 
-    futgg_price = format_price(
-        futgg.get("price") if futgg else None
-    )
+intents = discord.Intents.default()
+client = discord.Client(intents=intents)
 
-    futbin_price = format_price(
-        futbin.get("price") if futbin else None
-    )
 
-    futbin_updated = (
-        futbin.get("updated")
-        if futbin and futbin.get("updated")
-        else "nicht angegeben"
-    )
+@client.event
+async def on_ready():
+    print(f"🤖 Eingeloggt als {client.user}")
 
-    return {
-        "title": "🇵🇹 Kika Nazareth — 83 GES",
-        "description": (
+    channel = client.get_channel(CHANNEL_ID)
+
+    if channel is None:
+        print("❌ Discord Channel nicht gefunden.")
+        await client.close()
+        return
+
+    async with aiohttp.ClientSession() as session:
+        futbin_price, update_age = await get_futbin_price(session)
+
+    if futbin_price is None:
+        print("❌ FUTBIN Preis konnte nicht geladen werden.")
+        await client.close()
+        return
+
+    # =========================
+    # BERLIN ZEIT
+    # =========================
+
+    now_berlin = datetime.now(BERLIN_TZ)
+
+    formatted_time = now_berlin.strftime("%d.%m.%Y %H:%M")
+    footer_time = now_berlin.strftime("%H:%M")
+
+    # =========================
+    # EMBED
+    # =========================
+
+    embed = discord.Embed(
+        title="🇵🇹 Kika Nazareth — 83 GES",
+        description=(
             "⭐ **CM • Gold Rare**\n"
             "🔵 **FC Barcelona**\n"
             "💻 **PC Markt**"
         ),
-        "color": 0x00FF7F,
-        "fields": [
-            {
-                "name": "💰 FUT.GG",
-                "value": f"**{futgg_price}**",
-                "inline": True,
-            },
-            {
-                "name": "💜 FUTBIN",
-                "value": f"**{futbin_price}**",
-                "inline": True,
-            },
-            {
-                "name": "🕒 FUTBIN Daten",
-                "value": f"`{futbin_updated}`",
-                "inline": False,
-            },
-            {
-                "name": "🔄 Letzte Aktualisierung",
-                "value": f"`{current_time}`",
-                "inline": False,
-            },
-            {
-                "name": "⏱️ Automatik",
-                "value": "**Alle 5 Minuten**",
-                "inline": False,
-            },
-        ],
-        "footer": {
-            "text": "FUT Price Bot • PC Markt"
-        },
-        "image": {
-            "url": "https://raw.githubusercontent.com/CanberkPruda/fut-price-discord-bot/main/bannereafc27.png"
-        },
-        "timestamp": now_berlin.isoformat(),
-    }
-
-
-# ============================================================
-# DISCORD AKTUALISIEREN
-# ============================================================
-
-async def update_discord(embed):
-
-    headers = {
-        "Authorization": f"Bot {DISCORD_TOKEN}",
-        "Content-Type": "application/json",
-        "User-Agent": "KikaCombinedPriceBot/2.0",
-    }
-
-    messages_url = (
-        f"{DISCORD_API}/channels/"
-        f"{CHANNEL_ID}/messages?limit=100"
+        color=0x00FF7F,
+        timestamp=now_berlin
     )
 
-    async with aiohttp.ClientSession() as session:
+    embed.add_field(
+        name="💜 FUTBIN",
+        value=f"**{format_price(futbin_price)} Coins**",
+        inline=False
+    )
 
-        async with session.get(
-            messages_url,
-            headers=headers,
-        ) as response:
+    embed.add_field(
+        name="🕒 FUTBIN Daten",
+        value=f"**{update_age}**",
+        inline=True
+    )
 
-            print(f"Discord GET Status: {response.status}")
+    embed.add_field(
+        name="🔄 Letzte Aktualisierung",
+        value=f"**{formatted_time} Uhr**",
+        inline=True
+    )
 
-            if response.status != 200:
-                print(await response.text())
-                return False
+    embed.add_field(
+        name="⏱️ Automatik",
+        value="**Alle 15 Minuten**",
+        inline=False
+    )
 
-            messages = await response.json()
+    embed.set_footer(
+        text=f"FUT Price Bot • PC Markt • heute um {footer_time} Uhr"
+    )
 
-        existing_message = None
+    embed.set_image(url=BANNER_URL)
 
-        # Bestehende Kika-Nachricht suchen.
-        for message in messages:
+    # =========================
+    # ALTE KIKA-NACHRICHT SUCHEN
+    # =========================
 
-            author = message.get("author", {})
-            content = message.get("content", "")
+    existing_message = None
 
-            if (
-                author.get("bot") is True
-                and "Kika Nazareth" in content
-            ):
-                existing_message = message
-                break
+    try:
+        async for message in channel.history(limit=50):
 
-            # Auch bereits vorhandene Embed-Nachricht erkennen
-            for old_embed in message.get("embeds", []):
-                if "Kika Nazareth" in old_embed.get("title", ""):
-                    existing_message = message
-                    break
+            if message.author == client.user:
 
-            if existing_message:
-                break
+                if message.embeds:
 
-        payload = {
-            "content": "",
-            "embeds": [embed],
-        }
+                    embed_title = message.embeds[0].title or ""
 
-        if existing_message:
+                    if "Kika Nazareth" in embed_title:
+                        existing_message = message
+                        break
 
-            message_id = existing_message["id"]
+    except Exception as e:
+        print(f"⚠️ Fehler beim Durchsuchen des Channels: {e}")
 
-            edit_url = (
-                f"{DISCORD_API}/channels/"
-                f"{CHANNEL_ID}/messages/"
-                f"{message_id}"
-            )
+    # =========================
+    # NACHRICHT AKTUALISIEREN
+    # =========================
 
-            async with session.patch(
-                edit_url,
-                headers=headers,
-                json=payload,
-            ) as response:
+    if existing_message:
 
-                print(f"Discord PATCH Status: {response.status}")
+        await existing_message.edit(embed=embed)
 
-                if response.status == 200:
-                    print("Discord Embed aktualisiert.")
-                    return True
-
-                print(await response.text())
-                return False
-
-        # Falls keine Nachricht existiert
-        create_url = (
-            f"{DISCORD_API}/channels/"
-            f"{CHANNEL_ID}/messages"
+        print(
+            f"✅ Kika Preis aktualisiert: "
+            f"{format_price(futbin_price)} Coins"
         )
 
-        async with session.post(
-            create_url,
-            headers=headers,
-            json=payload,
-        ) as response:
-
-            print(f"Discord POST Status: {response.status}")
-
-            if response.status in (200, 201):
-                print("Discord Embed erstellt.")
-                return True
-
-            print(await response.text())
-            return False
-
-
-# ============================================================
-# MAIN
-# ============================================================
-
-async def main():
-
-    print("========================================")
-    print("Kika Nazareth • FUT.GG + FUTBIN")
-    print("========================================")
-
-    async with aiohttp.ClientSession() as session:
-
-        futgg = await get_futgg_price(session)
-        futbin = await get_futbin_price(session)
-
-    embed = create_embed(
-        futgg,
-        futbin,
-    )
-
-    success = await update_discord(embed)
-
-    if success:
-        print("OK: Discord erfolgreich aktualisiert.")
     else:
-        print("FEHLER: Discord konnte nicht aktualisiert werden.")
+
+        await channel.send(embed=embed)
+
+        print(
+            f"✅ Neue Kika Nachricht erstellt: "
+            f"{format_price(futbin_price)} Coins"
+        )
+
+    await client.close()
 
 
-if __name__ == "__main__":
-    asyncio.run(main())
+client.run(DISCORD_TOKEN)
