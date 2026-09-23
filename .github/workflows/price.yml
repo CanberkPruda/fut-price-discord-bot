@@ -3,8 +3,8 @@ name: Kika Price Update
 on:
   workflow_dispatch:
 
-  schedule:
-    - cron: "3,10,17,24,31,38,45,52,59 * * * *"
+  repository_dispatch:
+    types: [kika-price-update]
 
 permissions:
   contents: read
